@@ -24,7 +24,10 @@ pub enum CsConfigManagerCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct CompileOptions {
-    /// The root autoexec.cfg file to run against, following exec calls to concatenate the files
+    /// The `./cfg` directory to run against, used to get relative paths from exec calls to concatenate the files
+    #[arg()]
+    cfg_dir: String,
+    /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
     #[arg()]
     root_file: String,
 }
@@ -56,12 +59,11 @@ pub enum CompileError {
     FileNotFound(PathBuf),
 }
 
-fn compile<P: AsRef<Path>>(path: P) -> Result<String, CompileError> {
+fn compile(cfg_dir_path: &Path, path: &Path) -> Result<String, CompileError> {
     let regex = Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap();
-    let path = path.as_ref().to_owned();
     let file_contents = {
         let mut buffer = String::with_capacity(1024);
-        let _ = File::open(path.as_path()).and_then(|mut file| file.read_to_string(&mut buffer)).map_err(|_| CompileError::FileNotFound(path.clone()))?;
+        let _ = File::open(path).and_then(|mut file| file.read_to_string(&mut buffer)).map_err(|_| CompileError::FileNotFound(path.to_owned()))?;
         buffer
     };
 
@@ -69,7 +71,7 @@ fn compile<P: AsRef<Path>>(path: P) -> Result<String, CompileError> {
     Ok(file_contents
         .lines()
         .map(|line| if let Some(exec_file_path) = regex.captures(line).and_then(|captures| captures.get(1)) {
-            compile(path.join(exec_file_path.as_str().to_owned() + ".cfg")).unwrap()
+            compile(cfg_dir_path, &cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg")).unwrap()
         } else {
             line.to_owned()
         })
@@ -83,7 +85,7 @@ fn main() {
     let CsConfigManagerArgs { command } = CsConfigManagerArgs::parse();
     match command {
         CsConfigManagerCommand::Sync => {}
-        CsConfigManagerCommand::Compile(options) => println!("{}", compile(options.root_file).unwrap()),
+        CsConfigManagerCommand::Compile(options) => println!("{}", compile(Path::new(options.cfg_dir.clone().as_str()), PathBuf::from(options.cfg_dir).join(Path::new(options.root_file.as_str())).as_path().clone()).unwrap()),
         CsConfigManagerCommand::Publish => {}
     }
 }
