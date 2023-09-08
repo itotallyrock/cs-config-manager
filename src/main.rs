@@ -1,8 +1,12 @@
+use octocrab::OctocrabBuilder;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::iter::once;
 use regex::Regex;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use clap::{Args, Parser, Subcommand};
+use clap::builder::Str;
 
 // use octocrab::OctocrabBuilder;
 // use futures::{future, JoinAll};
@@ -17,10 +21,11 @@ struct CsConfigManagerArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum CsConfigManagerCommand {
-    Sync,
     Compile(CompileOptions),
-    Publish,
+    Pull,
+    Push(PushOptions),
 }
+
 
 #[derive(Args, Debug, Clone)]
 pub struct CompileOptions {
@@ -32,26 +37,20 @@ pub struct CompileOptions {
     root_file: String,
 }
 
-// #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-// pub enum ConflictResolutionStrategy {
-//     UseRemote,
-//     UseLocal,
-//     Abort,
-// }
-//
-// pub struct SyncOptions {
-//     files: Option<Vec<String>>,
-//     /// How to resolve a conflict or difference between synced files
-//     #[arg(short = "r", long = "conflict-resolution", value_enum, default_value_t = ConflictResolutionStrategy::Abort)]
-//     conflict_resolution: ConflictResolutionStrategy,
-// }
-
-fn publish() {
-    todo!("Upload files to github gist")
-}
-
-fn sync() {
-    todo!("Download files from github gist")
+#[derive(Args, Debug, Clone)]
+pub struct PushOptions {
+    /// The `./cfg` directory to run against, used to get relative paths from exec calls to include with the files
+    #[arg(value_name = "CFG_DIR", value_hint = clap::ValueHint::DirPath)]
+    cfg_dir: String,
+    /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
+    #[arg(value_name = "AUTOEXEC.CFG", value_hint = clap::ValueHint::FilePath)]
+    root_file: String,
+    /// The gist id to publish to
+    #[arg(long, required = true)]
+    gist_id: String,
+    /// The gist id to publish to
+    #[arg(short = 't', long = "access-token", required = true)]
+    github_access_token: String,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -59,15 +58,45 @@ pub enum CompileError {
     FileNotFound(PathBuf),
 }
 
+fn read_to_string(full_path: &Path) -> String {
+    let mut file_contents = String::with_capacity(1024);
+    let _ = File::open(full_path).and_then(|mut file| file.read_to_string(&mut file_contents)).unwrap();
+    file_contents
+}
+
+#[derive(Debug)]
+struct IncludedFile {
+    file_contents: String,
+    relative_file_path: PathBuf,
+}
+
+fn get_included_files(cfg_dir_path: &Path, path: &Path) -> Vec<IncludedFile> {
+    static EXEC_REGEX: OnceLock<Regex> = OnceLock::new();
+    let exec_regex = EXEC_REGEX.get_or_init(|| Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap());
+
+    let full_path = cfg_dir_path.join(path);
+    let file_contents = read_to_string(&full_path);
+
+    once(IncludedFile {
+        relative_file_path: path.to_path_buf(),
+        file_contents: read_to_string(&full_path),
+    })
+        .chain(
+        file_contents
+            .lines()
+            .filter_map(|line| exec_regex.captures(line).and_then(|captures| captures.get(1)))
+            .flat_map(|exec_file_path| {
+                // let full_path = cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg");
+                let next_path = exec_file_path.as_str().to_owned() + ".cfg";
+                get_included_files(cfg_dir_path, &PathBuf::from(next_path))
+            })
+        ).collect()
+}
+
 fn compile(cfg_dir_path: &Path, path: &Path) -> Result<String, CompileError> {
     let regex = Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap();
-    let file_contents = {
-        let mut buffer = String::with_capacity(1024);
-        let _ = File::open(path).and_then(|mut file| file.read_to_string(&mut buffer)).map_err(|_| CompileError::FileNotFound(path.to_owned()))?;
-        buffer
-    };
+    let file_contents = read_to_string(path);
 
-    let path = path.ancestors().nth(1).unwrap();
     Ok(file_contents
         .lines()
         .map(|line| if let Some(exec_file_path) = regex.captures(line).and_then(|captures| captures.get(1)) {
@@ -79,13 +108,35 @@ fn compile(cfg_dir_path: &Path, path: &Path) -> Result<String, CompileError> {
         .join("\n"))
 }
 
-fn main() {
-    // OctocrabBuilder::new().user_access_token(github_access_token).build().unwrap();
-    // println!("Hello, world!");
+fn compile_and_write(options: CompileOptions) -> PathBuf {
+    let root_cfg = PathBuf::from(options.cfg_dir.clone()).join(Path::new(options.root_file.as_str()));
+    let compiled = compile(Path::new(options.cfg_dir.clone().as_str()), root_cfg.as_path().clone()).unwrap();
+    let output_path = root_cfg.parent().unwrap().join("compiled.cfg");
+    let date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    File::create(&output_path).unwrap().write(format!("// Compiled on {date}\n\n{compiled}").as_bytes()).unwrap();
+
+    output_path
+}
+
+#[tokio::main]
+async fn main() {
     let CsConfigManagerArgs { command } = CsConfigManagerArgs::parse();
     match command {
-        CsConfigManagerCommand::Sync => {}
-        CsConfigManagerCommand::Compile(options) => println!("{}", compile(Path::new(options.cfg_dir.clone().as_str()), PathBuf::from(options.cfg_dir).join(Path::new(options.root_file.as_str())).as_path().clone()).unwrap()),
-        CsConfigManagerCommand::Publish => {}
+        CsConfigManagerCommand::Compile(options) => {
+            compile_and_write(options);
+        },
+        CsConfigManagerCommand::Pull => {},
+        CsConfigManagerCommand::Push(options) => {
+            let octocrab = OctocrabBuilder::new().user_access_token(options.github_access_token).build().unwrap();
+            let gist = octocrab.gists().update(options.gist_id);
+            dbg!(dbg!(get_included_files(&PathBuf::from(options.cfg_dir), &PathBuf::from(options.root_file)))
+                .iter()
+                .fold(gist.file("README.md").with_content(format!("# Compiled on {}\n\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))), |gist, included| {
+                    gist.file(included.relative_file_path.file_name().unwrap().to_str().unwrap()).with_content(included.file_contents.clone())
+                })
+                .send()
+                .await
+                .unwrap());
+        },
     }
 }
