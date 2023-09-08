@@ -1,14 +1,14 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::nursery)]
 
+use clap::{Args, Parser, Subcommand};
 use octocrab::OctocrabBuilder;
+use regex::Regex;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::iter::once;
-use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about)]
@@ -20,10 +20,9 @@ struct CsConfigManagerArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum CsConfigManagerCommand {
     Compile(CompileOptions),
-    Pull,
     Push(PushOptions),
+    // TODO: Support Pull to sync from gist
 }
-
 
 #[derive(Args, Debug, Clone)]
 pub struct CompileOptions {
@@ -51,14 +50,11 @@ pub struct PushOptions {
     github_access_token: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum CompileError {
-    FileNotFound(PathBuf),
-}
-
 fn read_to_string(full_path: &Path) -> String {
     let mut file_contents = String::with_capacity(1024);
-    let _ = File::open(full_path).and_then(|mut file| file.read_to_string(&mut file_contents)).unwrap();
+    let _ = File::open(full_path)
+        .and_then(|mut file| file.read_to_string(&mut file_contents))
+        .unwrap();
     file_contents
 }
 
@@ -79,38 +75,55 @@ fn get_included_files(cfg_dir_path: &Path, path: &Path) -> Vec<IncludedFile> {
         relative_file_path: path.to_path_buf(),
         file_contents: read_to_string(&full_path),
     })
-        .chain(
+    .chain(
         file_contents
             .lines()
-            .filter_map(|line| exec_regex.captures(line).and_then(|captures| captures.get(1)))
+            .filter_map(|line| {
+                exec_regex
+                    .captures(line)
+                    .and_then(|captures| captures.get(1))
+            })
             .flat_map(|exec_file_path| {
                 let next_path = exec_file_path.as_str().to_owned() + ".cfg";
                 get_included_files(cfg_dir_path, &PathBuf::from(next_path))
-            })
-        ).collect()
+            }),
+    )
+    .collect()
 }
 
-fn compile(cfg_dir_path: &Path, path: &Path) -> Result<String, CompileError> {
+fn compile(cfg_dir_path: &Path, path: &Path) -> String {
     let regex = Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap();
     let file_contents = read_to_string(path);
 
-    Ok(file_contents
+    file_contents
         .lines()
-        .map(|line| if let Some(exec_file_path) = regex.captures(line).and_then(|captures| captures.get(1)) {
-            compile(cfg_dir_path, &cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg")).unwrap()
-        } else {
-            line.to_owned()
+        .map(|line| {
+            regex
+                .captures(line)
+                .and_then(|captures| captures.get(1))
+                .map_or_else(
+                    || line.to_owned(),
+                    |exec_file_path| {
+                        compile(
+                            cfg_dir_path,
+                            &cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg"),
+                        )
+                    },
+                )
         })
         .collect::<Vec<String>>()
-        .join("\n"))
+        .join("\n")
 }
 
 fn compile_and_write(options: CompileOptions) -> PathBuf {
     let root_cfg = options.cfg_dir.join(options.root_file);
-    let compiled = compile(&options.cfg_dir, &root_cfg).unwrap();
+    let compiled = compile(&options.cfg_dir, &root_cfg);
     let output_path = root_cfg.parent().unwrap().join("compiled.cfg");
     let date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let _ = File::create(&output_path).unwrap().write(format!("// Compiled on {date}\n\n{compiled}").as_bytes()).unwrap();
+    let _ = File::create(&output_path)
+        .unwrap()
+        .write(format!("// Compiled on {date}\n\n{compiled}").as_bytes())
+        .unwrap();
 
     output_path
 }
@@ -121,19 +134,39 @@ async fn main() {
     match command {
         CsConfigManagerCommand::Compile(options) => {
             compile_and_write(options);
-        },
-        CsConfigManagerCommand::Pull => {},
+        }
         CsConfigManagerCommand::Push(options) => {
-            let octocrab = OctocrabBuilder::new().user_access_token(options.github_access_token).build().unwrap();
+            let octocrab = OctocrabBuilder::new()
+                .user_access_token(options.github_access_token)
+                .build()
+                .unwrap();
             let gist = octocrab.gists().update(options.gist_id);
             get_included_files(&options.cfg_dir, &options.root_file)
                 .iter()
-                .fold(gist.file("README.md").with_content(format!("# Compiled on {}\n\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))), |gist, included| {
-                    gist.file(included.relative_file_path.file_name().unwrap().to_str().unwrap()).with_content(format!("// {}\n{}", included.relative_file_path.to_str().unwrap(), included.file_contents))
-                })
+                .fold(
+                    gist.file("README.md").with_content(format!(
+                        "# Compiled on {}\n\n",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                    )),
+                    |gist, included| {
+                        gist.file(
+                            included
+                                .relative_file_path
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .unwrap(),
+                        )
+                        .with_content(format!(
+                            "// {}\n{}",
+                            included.relative_file_path.to_str().unwrap(),
+                            included.file_contents
+                        ))
+                    },
+                )
                 .send()
                 .await
                 .unwrap();
-        },
+        }
     }
 }
