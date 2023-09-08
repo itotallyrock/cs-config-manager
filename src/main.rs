@@ -1,3 +1,6 @@
+#![deny(clippy::pedantic)]
+#![deny(clippy::nursery)]
+
 use octocrab::OctocrabBuilder;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -6,12 +9,7 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use clap::{Args, Parser, Subcommand};
-use clap::builder::Str;
 
-// use octocrab::OctocrabBuilder;
-// use futures::{future, JoinAll};
-// use regex::Regex;
-// use itertools::Either;
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about)]
 struct CsConfigManagerArgs {
@@ -31,20 +29,20 @@ pub enum CsConfigManagerCommand {
 pub struct CompileOptions {
     /// The `./cfg` directory to run against, used to get relative paths from exec calls to concatenate the files
     #[arg()]
-    cfg_dir: String,
+    cfg_dir: PathBuf,
     /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
     #[arg()]
-    root_file: String,
+    root_file: PathBuf,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct PushOptions {
     /// The `./cfg` directory to run against, used to get relative paths from exec calls to include with the files
     #[arg(value_name = "CFG_DIR", value_hint = clap::ValueHint::DirPath)]
-    cfg_dir: String,
+    cfg_dir: PathBuf,
     /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
     #[arg(value_name = "AUTOEXEC.CFG", value_hint = clap::ValueHint::FilePath)]
-    root_file: String,
+    root_file: PathBuf,
     /// The gist id to publish to
     #[arg(long, required = true)]
     gist_id: String,
@@ -86,7 +84,6 @@ fn get_included_files(cfg_dir_path: &Path, path: &Path) -> Vec<IncludedFile> {
             .lines()
             .filter_map(|line| exec_regex.captures(line).and_then(|captures| captures.get(1)))
             .flat_map(|exec_file_path| {
-                // let full_path = cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg");
                 let next_path = exec_file_path.as_str().to_owned() + ".cfg";
                 get_included_files(cfg_dir_path, &PathBuf::from(next_path))
             })
@@ -109,11 +106,11 @@ fn compile(cfg_dir_path: &Path, path: &Path) -> Result<String, CompileError> {
 }
 
 fn compile_and_write(options: CompileOptions) -> PathBuf {
-    let root_cfg = PathBuf::from(options.cfg_dir.clone()).join(Path::new(options.root_file.as_str()));
-    let compiled = compile(Path::new(options.cfg_dir.clone().as_str()), root_cfg.as_path().clone()).unwrap();
+    let root_cfg = options.cfg_dir.join(options.root_file);
+    let compiled = compile(&options.cfg_dir, &root_cfg).unwrap();
     let output_path = root_cfg.parent().unwrap().join("compiled.cfg");
     let date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    File::create(&output_path).unwrap().write(format!("// Compiled on {date}\n\n{compiled}").as_bytes()).unwrap();
+    let _ = File::create(&output_path).unwrap().write(format!("// Compiled on {date}\n\n{compiled}").as_bytes()).unwrap();
 
     output_path
 }
@@ -129,14 +126,14 @@ async fn main() {
         CsConfigManagerCommand::Push(options) => {
             let octocrab = OctocrabBuilder::new().user_access_token(options.github_access_token).build().unwrap();
             let gist = octocrab.gists().update(options.gist_id);
-            dbg!(dbg!(get_included_files(&PathBuf::from(options.cfg_dir), &PathBuf::from(options.root_file)))
+            get_included_files(&options.cfg_dir, &options.root_file)
                 .iter()
                 .fold(gist.file("README.md").with_content(format!("# Compiled on {}\n\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"))), |gist, included| {
-                    gist.file(included.relative_file_path.file_name().unwrap().to_str().unwrap()).with_content(included.file_contents.clone())
+                    gist.file(included.relative_file_path.file_name().unwrap().to_str().unwrap()).with_content(format!("// {}\n{}", included.relative_file_path.to_str().unwrap(), included.file_contents))
                 })
                 .send()
                 .await
-                .unwrap());
+                .unwrap();
         },
     }
 }
