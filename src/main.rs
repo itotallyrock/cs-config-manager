@@ -45,7 +45,7 @@ pub struct PushOptions {
     /// The gist id to publish to
     #[arg(long, required = true)]
     gist_id: String,
-    /// The gist id to publish to
+    /// The github access token to authenticate using
     #[arg(short = 't', long = "access-token", required = true)]
     github_access_token: String,
 }
