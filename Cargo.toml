@@ -11,3 +11,4 @@ clap = { version = "4.4.2", features = ["derive", "cargo"] }
 regex = "1.9.4"
 octocrab = "0.29.3"
 tokio = { version = "1.32.0", features = ["full"] }
+futures = "0.3.28"

@@ -1,14 +1,16 @@
 #![deny(clippy::pedantic)]
 #![deny(clippy::nursery)]
 
-use clap::{Args, Parser, Subcommand};
-use octocrab::OctocrabBuilder;
-use regex::Regex;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+use clap::{Args, Parser, Subcommand};
+use futures::future::join_all;
+use octocrab::OctocrabBuilder;
+use regex::Regex;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
@@ -184,33 +186,34 @@ async fn main() {
                 .unwrap();
         }
         CsConfigManagerCommand::Pull(options) => {
-            let octocrab = OctocrabBuilder::new()
+            join_all(OctocrabBuilder::new()
                 .user_access_token(options.github_access_token)
                 .build()
-                .unwrap();
-            let gist = octocrab.gists().get(options.gist_id).await.unwrap();
-            let cfg_files = gist
+                .unwrap()
+                .gists()
+                .get(options.gist_id)
+                .await
+                .unwrap()
                 .files
                 .iter()
-                .filter(|(file_name, _)| file_name.as_str() != "README.md");
-            for (file_name, gist_file) in cfg_files {
-                let file_contents = gist_file.content.as_ref().unwrap();
-                let mut file_lines = file_contents.lines();
-                let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
-                let file_contents = file_lines.collect::<Vec<_>>().join("\n");
-                let absolute_path = options.cfg_dir.join(relative_path);
+                .filter(|(file_name, _)| file_name.as_str() != "README.md")
+                .map(|(file_name, gist_file)| async {
+                    let file_contents = gist_file.content.as_ref().unwrap();
+                    let mut file_lines = file_contents.lines();
+                    let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
+                    let file_contents = file_lines.collect::<Vec<_>>().join("\n");
+                    let absolute_path = options.cfg_dir.join(relative_path);
 
-                // Write the file
-                OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open(absolute_path)
-                    .await
-                    .unwrap()
-                    .write(file_contents.as_bytes())
-                    .await
-                    .unwrap();
-            }
+                    let _ = OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .open(absolute_path)
+                        .await
+                        .unwrap()
+                        .write(file_contents.as_bytes())
+                        .await
+                        .unwrap();
+                })).await;
         }
     }
 }
