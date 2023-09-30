@@ -65,6 +65,9 @@ pub struct PullOptions {
     /// The github access token to authenticate using
     #[arg(short = 't', long = "access-token", required = true)]
     github_access_token: String,
+    /// Disable creating files if they're not found locally
+    #[arg(short = 'u', long = "update-only", action = clap::ArgAction::SetTrue)]
+    update_only: bool,
 }
 
 fn read_to_string(full_path: &Path) -> String {
@@ -207,7 +210,7 @@ async fn main() {
 
                         let _ = OpenOptions::new()
                             .write(true)
-                            .create(true)
+                            .create(!options.update_only)
                             .open(absolute_path)
                             .await
                             .unwrap()
