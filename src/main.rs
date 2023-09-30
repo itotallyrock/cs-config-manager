@@ -9,6 +9,8 @@ use std::io::{Read, Write};
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about)]
@@ -21,7 +23,7 @@ struct CsConfigManagerArgs {
 pub enum CsConfigManagerCommand {
     Compile(CompileOptions),
     Push(PushOptions),
-    // TODO: Support Pull to sync from gist
+    Pull(PullOptions),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -42,6 +44,19 @@ pub struct PushOptions {
     /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
     #[arg(value_name = "AUTOEXEC.CFG", value_hint = clap::ValueHint::FilePath)]
     root_file: PathBuf,
+    /// The gist id to publish to
+    #[arg(long, required = true)]
+    gist_id: String,
+    /// The github access token to authenticate using
+    #[arg(short = 't', long = "access-token", required = true)]
+    github_access_token: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PullOptions {
+    /// The `./cfg` directory to run against, used to get relative paths from exec calls to include with the files
+    #[arg(value_name = "CFG_DIR", value_hint = clap::ValueHint::DirPath)]
+    cfg_dir: PathBuf,
     /// The gist id to publish to
     #[arg(long, required = true)]
     gist_id: String,
@@ -167,6 +182,24 @@ async fn main() {
                 .send()
                 .await
                 .unwrap();
+        },
+        CsConfigManagerCommand::Pull(options) => {
+            let octocrab = OctocrabBuilder::new()
+                .user_access_token(options.github_access_token)
+                .build()
+                .unwrap();
+            let gist = octocrab.gists().get(options.gist_id).await.unwrap();
+            let cfg_files = gist.files.iter().filter(|(file_name, _)| file_name.as_str() != "README.md");
+            for (file_name, gist_file) in cfg_files {
+                let file_contents = gist_file.content.as_ref().unwrap();
+                let mut file_lines = file_contents.lines();
+                let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
+                let file_contents = file_lines.collect::<Vec<_>>().join("\n");
+                let absolute_path = options.cfg_dir.join(relative_path);
+
+                // Write the file
+                OpenOptions::new().write(true).create(true).open(absolute_path).await.unwrap().write(file_contents.as_bytes()).await.unwrap();
+            }
         }
     }
 }
