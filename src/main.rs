@@ -186,34 +186,37 @@ async fn main() {
                 .unwrap();
         }
         CsConfigManagerCommand::Pull(options) => {
-            join_all(OctocrabBuilder::new()
-                .user_access_token(options.github_access_token)
-                .build()
-                .unwrap()
-                .gists()
-                .get(options.gist_id)
-                .await
-                .unwrap()
-                .files
-                .iter()
-                .filter(|(file_name, _)| file_name.as_str() != "README.md")
-                .map(|(file_name, gist_file)| async {
-                    let file_contents = gist_file.content.as_ref().unwrap();
-                    let mut file_lines = file_contents.lines();
-                    let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
-                    let file_contents = file_lines.collect::<Vec<_>>().join("\n");
-                    let absolute_path = options.cfg_dir.join(relative_path);
+            join_all(
+                OctocrabBuilder::new()
+                    .user_access_token(options.github_access_token)
+                    .build()
+                    .unwrap()
+                    .gists()
+                    .get(options.gist_id)
+                    .await
+                    .unwrap()
+                    .files
+                    .iter()
+                    .filter(|(file_name, _)| file_name.as_str() != "README.md")
+                    .map(|(file_name, gist_file)| async {
+                        let file_contents = gist_file.content.as_ref().unwrap();
+                        let mut file_lines = file_contents.lines();
+                        let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
+                        let file_contents = file_lines.collect::<Vec<_>>().join("\n");
+                        let absolute_path = options.cfg_dir.join(relative_path);
 
-                    let _ = OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .open(absolute_path)
-                        .await
-                        .unwrap()
-                        .write(file_contents.as_bytes())
-                        .await
-                        .unwrap();
-                })).await;
+                        let _ = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(absolute_path)
+                            .await
+                            .unwrap()
+                            .write(file_contents.as_bytes())
+                            .await
+                            .unwrap();
+                    }),
+            )
+            .await;
         }
     }
 }
