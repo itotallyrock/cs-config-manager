@@ -182,14 +182,17 @@ async fn main() {
                 .send()
                 .await
                 .unwrap();
-        },
+        }
         CsConfigManagerCommand::Pull(options) => {
             let octocrab = OctocrabBuilder::new()
                 .user_access_token(options.github_access_token)
                 .build()
                 .unwrap();
             let gist = octocrab.gists().get(options.gist_id).await.unwrap();
-            let cfg_files = gist.files.iter().filter(|(file_name, _)| file_name.as_str() != "README.md");
+            let cfg_files = gist
+                .files
+                .iter()
+                .filter(|(file_name, _)| file_name.as_str() != "README.md");
             for (file_name, gist_file) in cfg_files {
                 let file_contents = gist_file.content.as_ref().unwrap();
                 let mut file_lines = file_contents.lines();
@@ -198,7 +201,15 @@ async fn main() {
                 let absolute_path = options.cfg_dir.join(relative_path);
 
                 // Write the file
-                OpenOptions::new().write(true).create(true).open(absolute_path).await.unwrap().write(file_contents.as_bytes()).await.unwrap();
+                OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(absolute_path)
+                    .await
+                    .unwrap()
+                    .write(file_contents.as_bytes())
+                    .await
+                    .unwrap();
             }
         }
     }
