@@ -12,3 +12,6 @@ regex = "1.9.4"
 octocrab = "0.29.3"
 tokio = { version = "1.32.0", features = ["full"] }
 futures = "0.3.28"
+tracing = { version = "0.1.37", features = ["async-await"] }
+tracing-subscriber = "0.3.17"
+log = "0.4.20"
