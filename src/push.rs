@@ -1,3 +1,4 @@
+use crate::README_FILE;
 use clap::Args;
 use octocrab::OctocrabBuilder;
 use std::path::PathBuf;
@@ -23,44 +24,48 @@ pub struct PushOptions {
 }
 
 pub async fn push_config(options: PushOptions) {
+    // The text content to upload for the readme
+    let readme_content = format!(
+        "# Compiled on {}\n\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+    );
+    let included_files = crate::get_included_files(&options.cfg_dir, &options.root_file);
+    // Number of included files and the readme
+    let num_files = included_files.len() + 1;
+    // Total bytes of included files and the readme
+    let total_bytes = included_files
+        .iter()
+        .map(|f| f.file_contents.as_bytes().len())
+        .sum::<usize>()
+        + readme_content.as_bytes().len();
+
     if options.dry_run {
-        info!("skipping uploading due to --dry-run");
-    } else {
-        let octocrab = OctocrabBuilder::new()
-            .user_access_token(options.github_access_token)
-            .build()
-            .unwrap();
-        let gist = octocrab.gists().update(options.gist_id);
-        let gist = crate::get_included_files(&options.cfg_dir, &options.root_file)
-            .iter()
-            .fold(
-                gist.file("README.md").with_content(format!(
-                    "# Compiled on {}\n\n",
-                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-                )),
-                |gist, included| {
-                    gist.file(
-                        included
-                            .relative_file_path
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap(),
-                    )
-                    .with_content(format!(
-                        "// {}\n{}",
-                        included.relative_file_path.to_str().unwrap(),
-                        included.file_contents
-                    ))
-                },
-            )
-            .send()
-            .await
-            .unwrap();
         info!(
-            "uploaded {}B to {}",
-            gist.files.values().map(|f| f.size).sum::<u64>(),
-            gist.html_url
+            "skipping uploading {num_files} files ({total_bytes}B) to gist {} due to --dry-run",
+            options.gist_id
         );
+        return;
     }
+
+    let octocrab = OctocrabBuilder::new()
+        .user_access_token(options.github_access_token)
+        .build()
+        .unwrap();
+    let gist = octocrab.gists().update(options.gist_id);
+    let gist = included_files
+        .iter()
+        .fold(
+            gist.file(README_FILE).with_content(readme_content),
+            |gist, included| {
+                gist.file(included.get_file_name())
+                    .with_content(included.get_formatted_content())
+            },
+        )
+        .send()
+        .await
+        .unwrap();
+    info!(
+        "uploaded {num_files} files ({total_bytes}B) to {}",
+        gist.html_url
+    );
 }

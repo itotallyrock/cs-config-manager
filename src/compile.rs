@@ -19,6 +19,10 @@ pub struct CompileOptions {
     dry_run: bool,
 }
 
+fn get_exec_file_path(cfg_dir_path: &Path, exec_file_path: &str) -> PathBuf {
+    cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg")
+}
+
 fn compile(cfg_dir_path: &Path, path: &Path) -> String {
     debug!("compiling {} in compiled config", path.display());
     let regex = Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap();
@@ -33,10 +37,7 @@ fn compile(cfg_dir_path: &Path, path: &Path) -> String {
                 .map_or_else(
                     || line.to_owned(),
                     |exec_file_path| {
-                        compile(
-                            cfg_dir_path,
-                            &cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg"),
-                        )
+                        compile(cfg_dir_path, &get_exec_file_path(cfg_dir_path, exec_file_path.as_str()))
                     },
                 )
         })

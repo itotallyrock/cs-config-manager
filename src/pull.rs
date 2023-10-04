@@ -1,3 +1,4 @@
+use crate::README_FILE;
 use clap::Args;
 use futures::future::join_all;
 use octocrab::OctocrabBuilder;
@@ -37,13 +38,14 @@ pub async fn pull_config(options: PullOptions) {
             .unwrap()
             .files
             .iter()
-            .filter(|(file_name, _)| file_name.as_str() != "README.md")
+            .filter(|(file_name, _)| file_name.as_str() != README_FILE)
             .map(|(file_name, gist_file)| async {
                 let file_contents = gist_file.content.as_ref().unwrap();
                 let mut file_lines = file_contents.lines();
                 let relative_path = &file_lines.next().unwrap_or(file_name.as_str())[3..];
                 let file_contents = file_lines.collect::<Vec<_>>().join("\n");
                 let absolute_path = options.cfg_dir.join(relative_path);
+                let path_name = absolute_path.display();
 
                 let mut file_write = OpenOptions::new()
                     .write(true)
@@ -53,16 +55,13 @@ pub async fn pull_config(options: PullOptions) {
                     .unwrap();
 
                 if options.dry_run {
-                    info!(
-                        "skipping writing {}B to {} due to --dry-run",
-                        file_contents.as_bytes().len(),
-                        absolute_path.display()
-                    );
-                } else {
-                    let written_bytes = file_write.write(file_contents.as_bytes()).await.unwrap();
-
-                    info!("wrote {written_bytes}B to {}", absolute_path.display());
+                    let num_bytes = file_contents.as_bytes().len();
+                    info!("skipping writing {num_bytes}B to {path_name} due to --dry-run");
+                    return;
                 }
+
+                let written_bytes = file_write.write(file_contents.as_bytes()).await.unwrap();
+                info!("wrote {written_bytes}B to {path_name}");
             }),
     )
     .await;

@@ -36,6 +36,8 @@ pub enum CsConfigManagerCommand {
     Pull(PullOptions),
 }
 
+pub const README_FILE: &str = "README.md";
+
 fn read_to_string(full_path: &Path) -> String {
     let mut file_contents = String::with_capacity(1024);
     let _ = File::open(full_path)
@@ -48,6 +50,26 @@ fn read_to_string(full_path: &Path) -> String {
 struct IncludedFile {
     file_contents: String,
     relative_file_path: PathBuf,
+}
+
+impl IncludedFile {
+    fn get_formatted_content(&self) -> impl Into<String> + Sized {
+        format!(
+            "// {}\n{}",
+            self.relative_file_path.to_str().unwrap(),
+            self.file_contents,
+        )
+    }
+}
+
+impl IncludedFile {
+    fn get_file_name(&self) -> &str {
+        self.relative_file_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    }
 }
 
 fn get_included_files(cfg_dir_path: &Path, path: &Path) -> Vec<IncludedFile> {
