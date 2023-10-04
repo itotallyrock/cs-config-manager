@@ -7,12 +7,11 @@ use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use compile::CompileOptions;
 use pull::PullOptions;
 use push::PushOptions;
 use regex::Regex;
-use tokio::io::AsyncWriteExt;
 use tracing::Level;
 use tracing_subscriber::filter::{FilterExt, LevelFilter, Targets};
 use tracing_subscriber::layer::SubscriberExt;

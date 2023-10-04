@@ -23,42 +23,43 @@ pub struct PushOptions {
 }
 
 pub async fn push_config(options: PushOptions) {
-    let octocrab = OctocrabBuilder::new()
-        .user_access_token(options.github_access_token)
-        .build()
-        .unwrap();
-    let gist = octocrab.gists().update(options.gist_id);
-    let gist = crate::get_included_files(&options.cfg_dir, &options.root_file)
-        .iter()
-        .fold(
-            gist.file("README.md").with_content(format!(
-                "# Compiled on {}\n\n",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-            )),
-            |gist, included| {
-                gist.file(
-                    included
-                        .relative_file_path
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap(),
-                )
-                .with_content(format!(
-                    "// {}\n{}",
-                    included.relative_file_path.to_str().unwrap(),
-                    included.file_contents
-                ))
-            },
-        );
-
     if options.dry_run {
         info!("skipping uploading due to --dry-run");
     } else {
-        let gist = gist.send().await.unwrap();
+        let octocrab = OctocrabBuilder::new()
+            .user_access_token(options.github_access_token)
+            .build()
+            .unwrap();
+        let gist = octocrab.gists().update(options.gist_id);
+        let gist = crate::get_included_files(&options.cfg_dir, &options.root_file)
+            .iter()
+            .fold(
+                gist.file("README.md").with_content(format!(
+                    "# Compiled on {}\n\n",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+                )),
+                |gist, included| {
+                    gist.file(
+                        included
+                            .relative_file_path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
+                    )
+                    .with_content(format!(
+                        "// {}\n{}",
+                        included.relative_file_path.to_str().unwrap(),
+                        included.file_contents
+                    ))
+                },
+            )
+            .send()
+            .await
+            .unwrap();
         info!(
             "uploaded {}B to {}",
-            gist.files.iter().map(|(_, f)| f.size).sum::<u64>(),
+            gist.files.values().map(|f| f.size).sum::<u64>(),
             gist.html_url
         );
     }
