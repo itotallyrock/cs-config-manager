@@ -1,26 +1,26 @@
-#![deny(clippy::pedantic)]
-#![deny(clippy::nursery)]
+#![deny(clippy::pedantic, clippy::nursery)]
+#![allow(clippy::module_name_repetitions)]
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use clap::{Args, Parser, Subcommand};
+use compile::CompileOptions;
 use futures::future::join_all;
-use futures::SinkExt;
 use octocrab::OctocrabBuilder;
 use regex::Regex;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, info, instrument, Level, trace};
-use tracing::subscriber::set_global_default;
+use tracing::{info, Level};
 use tracing_subscriber::filter::{FilterExt, LevelFilter, Targets};
-use tracing_subscriber::{FmtSubscriber, Layer, registry};
-use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{registry, Layer};
+
+mod compile;
 
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about)]
@@ -34,19 +34,6 @@ pub enum CsConfigManagerCommand {
     Compile(CompileOptions),
     Push(PushOptions),
     Pull(PullOptions),
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct CompileOptions {
-    /// The `./cfg` directory to run against, used to get relative paths from exec calls to concatenate the files
-    #[arg()]
-    cfg_dir: PathBuf,
-    /// The relative path of the root cfg (ie. `autoexec.cfg`) file to run against, following exec calls to concatenate the files
-    #[arg()]
-    root_file: PathBuf,
-    /// Whether or not to actually write the file
-    #[arg(long, action = clap::ArgAction::SetTrue)]
-    dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -128,48 +115,6 @@ fn get_included_files(cfg_dir_path: &Path, path: &Path) -> Vec<IncludedFile> {
     .collect()
 }
 
-fn compile(cfg_dir_path: &Path, path: &Path) -> String {
-    debug!("compiling {} in compiled config", path.display());
-    let regex = Regex::new(r#"^exec "([^"]+)"|(.+)"#).unwrap();
-    let file_contents = read_to_string(path);
-
-    file_contents
-        .lines()
-        .map(|line| {
-            regex
-                .captures(line)
-                .and_then(|captures| captures.get(1))
-                .map_or_else(
-                    || line.to_owned(),
-                    |exec_file_path| {
-                        compile(
-                            cfg_dir_path,
-                            &cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg"),
-                        )
-                    },
-                )
-        })
-        .collect::<Vec<String>>()
-        .join("\n")
-}
-
-fn compile_and_write(options: CompileOptions) {
-    let root_cfg = options.cfg_dir.join(options.root_file);
-    let compiled = compile(&options.cfg_dir, &root_cfg);
-    let output_path = root_cfg.parent().unwrap().join("compiled.cfg");
-    let date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let compiled = format!("// Compiled on {date}\n\n{compiled}");
-    if !options.dry_run {
-        let written_bytes = File::create(&output_path)
-            .unwrap()
-            .write(compiled.as_bytes())
-            .unwrap();
-        info!("compiled {written_bytes}B to {}", output_path.display());
-    } else {
-        info!("skipping writing compiled {}B to {} due to --dry-run", compiled.as_bytes().len(), output_path.display());
-    }
-}
-
 async fn push_config(options: PushOptions) {
     let octocrab = OctocrabBuilder::new()
         .user_access_token(options.github_access_token)
@@ -192,19 +137,21 @@ async fn push_config(options: PushOptions) {
                         .to_str()
                         .unwrap(),
                 )
-                    .with_content(format!(
-                        "// {}\n{}",
-                        included.relative_file_path.to_str().unwrap(),
-                        included.file_contents
-                    ))
+                .with_content(format!(
+                    "// {}\n{}",
+                    included.relative_file_path.to_str().unwrap(),
+                    included.file_contents
+                ))
             },
         );
 
     if !options.dry_run {
-        let gist = gist.send()
-            .await
-            .unwrap();
-        info!("uploaded {}B to {}", gist.files.iter().map(|(_, f)| f.size).sum::<u64>(), gist.html_url);
+        let gist = gist.send().await.unwrap();
+        info!(
+            "uploaded {}B to {}",
+            gist.files.iter().map(|(_, f)| f.size).sum::<u64>(),
+            gist.html_url
+        );
     } else {
         info!("skipping uploading due to --dry-run");
     }
@@ -238,16 +185,19 @@ async fn pull_config(options: PullOptions) {
                     .unwrap();
 
                 if !options.dry_run {
-                    let written_bytes = file_write.write(file_contents.as_bytes())
-                        .await
-                        .unwrap();
+                    let written_bytes = file_write.write(file_contents.as_bytes()).await.unwrap();
 
                     info!("wrote {written_bytes}B to {}", absolute_path.display());
                 } else {
-                    info!("skipping writing {}B to {} due to --dry-run", file_contents.as_bytes().len(), absolute_path.display());
+                    info!(
+                        "skipping writing {}B to {} due to --dry-run",
+                        file_contents.as_bytes().len(),
+                        absolute_path.display()
+                    );
                 }
             }),
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::main]
@@ -255,16 +205,16 @@ async fn main() {
     let stdout_subscriber = tracing_subscriber::fmt::layer()
         .without_time()
         .with_target(false)
-        .with_filter(Targets::new()
-            .with_target("cs_config_manager", Level::TRACE)
-            .or(LevelFilter::OFF));
-    registry()
-        .with(stdout_subscriber)
-        .init();
+        .with_filter(
+            Targets::new()
+                .with_target("cs_config_manager", Level::TRACE)
+                .or(LevelFilter::OFF),
+        );
+    registry().with(stdout_subscriber).init();
 
     let CsConfigManagerArgs { command } = CsConfigManagerArgs::parse();
     match command {
-        CsConfigManagerCommand::Compile(options) => compile_and_write(options),
+        CsConfigManagerCommand::Compile(options) => compile::compile_and_write(options),
         CsConfigManagerCommand::Push(options) => push_config(options).await,
         CsConfigManagerCommand::Pull(options) => pull_config(options).await,
     };
