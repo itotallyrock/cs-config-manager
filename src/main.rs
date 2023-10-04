@@ -258,7 +258,6 @@ async fn main() {
         .with_filter(Targets::new()
             .with_target("cs_config_manager", Level::TRACE)
             .or(LevelFilter::OFF));
-    // let _ = set_global_default(stdout_subscriber);
     registry()
         .with(stdout_subscriber)
         .init();
