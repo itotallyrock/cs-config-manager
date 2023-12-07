@@ -1,8 +1,10 @@
-use crate::README_FILE;
+use std::path::PathBuf;
+
 use clap::Args;
 use octocrab::OctocrabBuilder;
-use std::path::PathBuf;
 use tracing::info;
+
+use crate::README_FILE;
 
 #[derive(Args, Debug, Clone)]
 pub struct PushOptions {
@@ -51,9 +53,22 @@ pub async fn push_config(options: PushOptions) {
         .user_access_token(options.github_access_token)
         .build()
         .unwrap();
+
+    // Delete files not found locally
+    let current_gist = octocrab.gists().get(&options.gist_id).await.unwrap();
+    let deleted_files_names = current_gist.files.keys().filter(|deleted_file| {
+        included_files
+            .iter()
+            .any(|i| i.get_file_name() == deleted_file.as_str())
+    });
     let gist = octocrab.gists().update(options.gist_id);
+    let gist = deleted_files_names.fold(gist, |gist, deleted_file_name| {
+        gist.file(deleted_file_name).delete()
+    });
+
+    // Add or update included files on gist
     let gist = included_files
-        .iter()
+        .into_iter()
         .fold(
             gist.file(README_FILE).with_content(readme_content),
             |gist, included| {
