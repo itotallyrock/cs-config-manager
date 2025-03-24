@@ -6,12 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = "0.4.30"
-clap = { version = "4.4.2", features = ["derive", "cargo"] }
-regex = "1.9.4"
+chrono = "0.4.40"
+clap = { version = "4.5.32", features = ["derive", "cargo"] }
+regex = "1.11.1"
 octocrab = "0.43.0"
-tokio = { version = "1.32.0", features = ["full"] }
-futures = "0.3.28"
-tracing = { version = "0.1.37", features = ["async-await"] }
-tracing-subscriber = "0.3.17"
-log = "0.4.20"
+tokio = { version = "1.44.1", features = ["full"] }
+futures = "0.3.31"
+tracing = { version = "0.1.41", features = ["async-await"] }
+tracing-subscriber = "0.3.19"
