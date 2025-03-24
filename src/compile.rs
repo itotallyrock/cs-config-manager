@@ -37,7 +37,10 @@ fn compile(cfg_dir_path: &Path, path: &Path) -> String {
                 .map_or_else(
                     || line.to_owned(),
                     |exec_file_path| {
-                        compile(cfg_dir_path, &get_exec_file_path(cfg_dir_path, exec_file_path.as_str()))
+                        compile(
+                            cfg_dir_path,
+                            &get_exec_file_path(cfg_dir_path, exec_file_path.as_str()),
+                        )
                     },
                 )
         })
