@@ -20,7 +20,7 @@ pub struct CompileOptions {
 }
 
 fn get_exec_file_path(cfg_dir_path: &Path, exec_file_path: &str) -> PathBuf {
-    cfg_dir_path.join(exec_file_path.as_str().to_owned() + ".cfg")
+    cfg_dir_path.join(exec_file_path.to_owned() + ".cfg")
 }
 
 fn compile(cfg_dir_path: &Path, path: &Path) -> String {
