@@ -53,7 +53,7 @@ struct IncludedFile {
 }
 
 impl IncludedFile {
-    fn get_formatted_content(&self) -> impl Into<String> + Sized {
+    fn get_formatted_content(&self) -> impl Into<String> {
         format!(
             "// {}\n{}",
             self.relative_file_path.to_str().unwrap(),
@@ -116,5 +116,5 @@ async fn main() {
         CsConfigManagerCommand::Compile(options) => compile::compile_and_write(options),
         CsConfigManagerCommand::Push(options) => push::push_config(options).await,
         CsConfigManagerCommand::Pull(options) => pull::pull_config(options).await,
-    };
+    }
 }

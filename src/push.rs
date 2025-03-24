@@ -37,9 +37,9 @@ pub async fn push_config(options: PushOptions) {
     // Total bytes of included files and the readme
     let total_bytes = included_files
         .iter()
-        .map(|f| f.file_contents.as_bytes().len())
+        .map(|f| f.file_contents.len())
         .sum::<usize>()
-        + readme_content.as_bytes().len();
+        + readme_content.len();
 
     if options.dry_run {
         info!(

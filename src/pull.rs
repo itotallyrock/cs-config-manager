@@ -55,7 +55,7 @@ pub async fn pull_config(options: PullOptions) {
                     .unwrap();
 
                 if options.dry_run {
-                    let num_bytes = file_contents.as_bytes().len();
+                    let num_bytes = file_contents.len();
                     info!("skipping writing {num_bytes}B to {path_name} due to --dry-run");
                     return;
                 }

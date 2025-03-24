@@ -57,7 +57,7 @@ pub fn compile_and_write(options: CompileOptions) {
     if options.dry_run {
         info!(
             "skipping writing compiled {}B to {} due to --dry-run",
-            compiled.as_bytes().len(),
+            compiled.len(),
             output_path.display()
         );
     } else {
