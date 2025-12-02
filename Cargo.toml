@@ -9,7 +9,7 @@ edition = "2021"
 chrono = "0.4.40"
 clap = { version = "4.5.32", features = ["derive", "cargo"] }
 regex = "1.11.1"
-octocrab = "0.43.0"
+octocrab = "0.48.1"
 tokio = { version = "1.44.1", features = ["full"] }
 futures = "0.3.31"
 tracing = { version = "0.1.41", features = ["async-await"] }
